@@ -1,0 +1,32 @@
+version: 2.1
+
+jobs:
+  inspect-build-machine:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: large
+
+    steps:
+      - run:
+          name: Check CPU
+          command: nproc
+
+      - run:
+          name: Check RAM
+          command: free -h
+
+      - run:
+          name: Check disk
+          command: |
+            df -h /
+            lsblk
+
+      - run:
+          name: Check architecture
+          command: uname -m
+
+workflows:
+  test-machine:
+    jobs:
+      - inspect-build-machine
+      
