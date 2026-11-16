@@ -13,22 +13,48 @@ jobs:
       - checkout
 
       - run:
-          name: Install repo launcher
+          name: Install dependencies and configure Git
           command: |
             sudo apt-get update
-            sudo apt-get install -y git curl python3 ca-certificates
+            sudo apt-get install -y \
+              git curl python3 ca-certificates \
+              git-lfs rsync
+
+            git config --global user.name "Luffy-os Builder"
+            git config --global user.email "builder@users.noreply.github.com"
+
+            git config --global color.ui false
 
             mkdir -p ~/bin
+
             curl -L \
               https://storage.googleapis.com/git-repo-downloads/repo \
               -o ~/bin/repo
 
             chmod +x ~/bin/repo
+
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
       - run:
-          name: Initialize Evolution X
+          name: Verify environment
           command: |
+            source "$BASH_ENV"
+
+            echo "=== CPU ==="
+            nproc
+
+            echo "=== RAM ==="
+            free -h
+
+            echo "=== DISK ==="
+            df -h /
+
+      - run:
+          name: Initialize Evolution X
+          no_output_timeout: 15m
+          command: |
+            source "$BASH_ENV"
+
             repo init \
               -u https://github.com/Evolution-X/manifest \
               -b cnb \
@@ -36,16 +62,22 @@ jobs:
               --git-lfs
 
       - run:
-          name: Add Flame local manifest
+          name: Configure Flame local manifest
           command: |
             mkdir -p .repo/local_manifests
+
             cp "$CIRCLE_WORKING_DIRECTORY/local_manifests/flame.xml" \
               .repo/local_manifests/flame.xml
 
+            echo "=== Local manifest ==="
+            cat .repo/local_manifests/flame.xml
+
       - run:
-          name: Sync Android source
+          name: Sync Evolution X source
           no_output_timeout: 30m
           command: |
+            source "$BASH_ENV"
+
             repo sync \
               -c \
               -j2 \
@@ -54,16 +86,22 @@ jobs:
               --no-tags
 
       - run:
-          name: Report source storage
+          name: Verify source and disk usage
           command: |
-            echo "=== DISK ==="
-            df -h /
+            echo "=== DEVICE TREE ==="
+            ls device/xiaomi/flame
+
+            echo "=== VENDOR TREE ==="
+            ls vendor/xiaomi/flame
+
+            echo "=== KERNEL TREE ==="
+            ls device/xiaomi/flame-kernel
 
             echo "=== SOURCE SIZE ==="
             du -sh .repo .
-            
-            echo "=== DEVICE TREE ==="
-            ls device/xiaomi/flame
+
+            echo "=== REMAINING DISK ==="
+            df -h /
 
 workflows:
   build:
