@@ -1,32 +1,71 @@
+
 version: 2.1
 
 jobs:
-  inspect-build-machine:
+  sync-evolution:
     machine:
       image: ubuntu-2404:current
     resource_class: large
 
+    working_directory: ~/android
+
     steps:
-      - run:
-          name: Check CPU
-          command: nproc
+      - checkout
 
       - run:
-          name: Check RAM
-          command: free -h
-
-      - run:
-          name: Check disk
+          name: Install repo launcher
           command: |
-            df -h /
-            lsblk
+            sudo apt-get update
+            sudo apt-get install -y git curl python3 ca-certificates
+
+            mkdir -p ~/bin
+            curl -L \
+              https://storage.googleapis.com/git-repo-downloads/repo \
+              -o ~/bin/repo
+
+            chmod +x ~/bin/repo
+            echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
       - run:
-          name: Check architecture
-          command: uname -m
+          name: Initialize Evolution X
+          command: |
+            repo init \
+              -u https://github.com/Evolution-X/manifest \
+              -b cnb \
+              --depth=1 \
+              --git-lfs
+
+      - run:
+          name: Add Flame local manifest
+          command: |
+            mkdir -p .repo/local_manifests
+            cp "$CIRCLE_WORKING_DIRECTORY/local_manifests/flame.xml" \
+              .repo/local_manifests/flame.xml
+
+      - run:
+          name: Sync Android source
+          no_output_timeout: 30m
+          command: |
+            repo sync \
+              -c \
+              -j2 \
+              --force-sync \
+              --no-clone-bundle \
+              --no-tags
+
+      - run:
+          name: Report source storage
+          command: |
+            echo "=== DISK ==="
+            df -h /
+
+            echo "=== SOURCE SIZE ==="
+            du -sh .repo .
+            
+            echo "=== DEVICE TREE ==="
+            ls device/xiaomi/flame
 
 workflows:
-  test-machine:
+  build:
     jobs:
-      - inspect-build-machine
-      
+      - sync-evolution
