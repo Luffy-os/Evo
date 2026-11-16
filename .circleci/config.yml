@@ -12,34 +12,44 @@ jobs:
     steps:
       - checkout
 
+      # 1. Install dependencies and configure Git
       - run:
-          name: Install dependencies and configure Git
+          name: Install dependencies
           command: |
             sudo apt-get update
+
             sudo apt-get install -y \
-              git curl python3 ca-certificates \
-              git-lfs rsync
+              git \
+              git-lfs \
+              curl \
+              python3 \
+              ca-certificates \
+              rsync \
+              bc \
+              bison \
+              build-essential \
+              flex \
+              libssl-dev \
+              zlib1g-dev
 
             git config --global user.name "Luffy-os Builder"
             git config --global user.email "builder@users.noreply.github.com"
-
             git config --global color.ui false
 
-            mkdir -p ~/bin
+            mkdir -p "$HOME/bin"
 
             curl -L \
               https://storage.googleapis.com/git-repo-downloads/repo \
-              -o ~/bin/repo
+              -o "$HOME/bin/repo"
 
-            chmod +x ~/bin/repo
+            chmod +x "$HOME/bin/repo"
 
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
+      # 2. Inspect build machine
       - run:
-          name: Verify environment
+          name: Verify build environment
           command: |
-            source "$BASH_ENV"
-
             echo "=== CPU ==="
             nproc
 
@@ -49,6 +59,38 @@ jobs:
             echo "=== DISK ==="
             df -h /
 
+            echo "=== ARCHITECTURE ==="
+            uname -m
+
+      # 3. Verify local manifest exists
+      - run:
+          name: Verify Flame manifest
+          command: |
+            echo "=== Repository directory ==="
+            pwd
+
+            echo "=== Local manifest directory ==="
+
+            ls -la "$PWD/local_manifests/" || {
+              echo "ERROR: local_manifests folder missing"
+              exit 1
+            }
+
+            echo "=== XML files ==="
+
+            find "$PWD/local_manifests" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.xml' \
+              -print
+
+            test -n "$(find "$PWD/local_manifests" \
+              -maxdepth 1 -type f -name '*.xml' -print -quit)" || {
+                echo "ERROR: No XML manifest found"
+                exit 1
+              }
+
+      # 4. Initialize Evolution X
       - run:
           name: Initialize Evolution X
           no_output_timeout: 15m
@@ -61,17 +103,22 @@ jobs:
               --depth=1 \
               --git-lfs
 
+      # 5. Copy local manifest
       - run:
           name: Configure Flame local manifest
           command: |
             mkdir -p .repo/local_manifests
 
-            cp "$CIRCLE_WORKING_DIRECTORY/local_manifests/flame.xml" \
-              .repo/local_manifests/flame.xml
+            find "$PWD/local_manifests" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.xml' \
+              -exec cp -v {} .repo/local_manifests/ \;
 
-            echo "=== Local manifest ==="
-            cat .repo/local_manifests/flame.xml
+            echo "=== Installed manifests ==="
+            ls -la .repo/local_manifests/
 
+      # 6. Sync Android source
       - run:
           name: Sync Evolution X source
           no_output_timeout: 30m
@@ -85,22 +132,26 @@ jobs:
               --no-clone-bundle \
               --no-tags
 
+      # 7. Verify source
       - run:
-          name: Verify source and disk usage
+          name: Verify Flame source
           command: |
-            echo "=== DEVICE TREE ==="
+            echo "=== Device tree ==="
             ls device/xiaomi/flame
 
-            echo "=== VENDOR TREE ==="
+            echo "=== Vendor tree ==="
             ls vendor/xiaomi/flame
 
-            echo "=== KERNEL TREE ==="
+            echo "=== Kernel tree ==="
             ls device/xiaomi/flame-kernel
 
-            echo "=== SOURCE SIZE ==="
-            du -sh .repo .
+            echo "=== Repo size ==="
+            du -sh .repo
 
-            echo "=== REMAINING DISK ==="
+            echo "=== Source size ==="
+            du -sh --exclude=.repo .
+
+            echo "=== Remaining disk ==="
             df -h /
 
 workflows:
