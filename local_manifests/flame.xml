@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+    <!-- Redmi 14C 5G (flame) device tree -->
+    <remote name="luffy" fetch="https://github.com/Luffy-os" />
+    <project name="android_device_xiaomi_flame"
+             path="device/xiaomi/flame"
+             remote="luffy"
+             revision="lineage-24.0" />
+
+    <!-- Device vendor blobs -->
+    <remote name="flame4blame" fetch="https://github.com/flame4blame" />
+    <project name="proprietary_vendor_xiaomi_flame"
+             path="vendor/xiaomi/flame"
+             remote="flame4blame"
+             revision="lineage-24.0" />
+
+    <!-- Device kernel -->
+    <project name="android_device_xiaomi_flame-kernel"
+             path="device/xiaomi/flame-kernel"
+             remote="flame4blame"
+             revision="lineage-24.0" />
+
+    <remote name="lineage"
+        fetch="https://github.com/LineageOS" />
+
+<project name="android_hardware_xiaomi"
+         path="hardware/xiaomi"
+         remote="lineage"
+         revision="lineage-23.2" />
+</manifest>
