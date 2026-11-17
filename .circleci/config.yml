@@ -2,46 +2,75 @@
 version: 2.1
 
 jobs:
+
+  # ==========================================
+  # JOB 1: SYNC ORANGEFOX 16.0
+  # ==========================================
   sync-orangefox:
     machine:
       image: ubuntu-2404:current
     resource_class: large
+
     working_directory: ~/android
 
     steps:
       - run:
-          name: Install repo launcher
+          name: Install Repo launcher
           command: |
             sudo apt-get update
             sudo apt-get install -y git curl python3 ca-certificates
 
             mkdir -p ~/bin
-            curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
+
+            curl -fsSL \
+              https://storage.googleapis.com/git-repo-downloads/repo \
+              -o ~/bin/repo
+
             chmod +x ~/bin/repo
+
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
       - run:
           name: Sync OrangeFox 16.0
           no_output_timeout: 60m
           command: |
-            git clone https://gitlab.com/OrangeFox/sync.git ~/OrangeFox_sync
+            git clone \
+              https://gitlab.com/OrangeFox/sync.git \
+              ~/OrangeFox_sync
 
             cd ~/OrangeFox_sync
+
             chmod +x orangefox_sync.sh
 
             ./orangefox_sync.sh \
               --branch 16.0 \
               --path ~/android
 
+      - run:
+          name: Check synced source
+          command: |
+            cd ~/android
+
+            echo "=== OrangeFox source ==="
+            ls -la
+
+            echo "=== Disk usage ==="
+            df -h /
+
       - persist_to_workspace:
           root: /home/circleci
           paths:
             - android
 
+
+  # ==========================================
+  # JOB 2: CONFIGURE FLAME DEVICE TREE
+  # ==========================================
   configure-flame:
     machine:
       image: ubuntu-2404:current
     resource_class: large
+
     working_directory: ~/android
 
     steps:
@@ -49,11 +78,16 @@ jobs:
           at: /home/circleci
 
       - run:
-          name: Install repo launcher
+          name: Install Repo launcher
           command: |
             mkdir -p ~/bin
-            curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
+
+            curl -fsSL \
+              https://storage.googleapis.com/git-repo-downloads/repo \
+              -o ~/bin/repo
+
             chmod +x ~/bin/repo
+
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
       - run:
@@ -61,20 +95,22 @@ jobs:
           no_output_timeout: 30m
           command: |
             source "$BASH_ENV"
+
             cd ~/android
 
             mkdir -p .repo/local_manifests
 
-            cat > .repo/local_manifests/flame.xml <<'EOF'
-            <manifest>
-                <remote name="flame"
-                        fetch="https://github.com/atlas4381" />
+            printf '%s\n' \
+              '<manifest>' \
+              '    <remote name="flame" fetch="https://github.com/atlas4381" />' \
+              '    <project name="twrp_device_xiaomi_flame" path="device/xiaomi/flame" remote="flame" />' \
+              '</manifest>' \
+              > .repo/local_manifests/flame.xml
 
-                <project name="twrp_device_xiaomi_flame"
-                         path="device/xiaomi/flame"
-                         remote="flame" />
-            </manifest>
-            EOF
+            echo "=== Flame manifest ==="
+            cat .repo/local_manifests/flame.xml
+
+            echo "=== Sync Flame device tree ==="
 
             repo sync \
               -c \
@@ -83,6 +119,8 @@ jobs:
               --no-clone-bundle \
               --no-tags
 
+            echo "=== Verify device tree ==="
+            test -f device/xiaomi/flame/AndroidProducts.mk
             ls device/xiaomi/flame
 
       - persist_to_workspace:
@@ -90,15 +128,47 @@ jobs:
           paths:
             - android
 
+
+  # ==========================================
+  # JOB 3: BUILD ORANGEFOX RECOVERY
+  # ==========================================
   build-orangefox:
     machine:
       image: ubuntu-2404:current
     resource_class: large
+
     working_directory: ~/android
 
     steps:
       - attach_workspace:
           at: /home/circleci
+
+      - run:
+          name: Install Android build dependencies
+          command: |
+            sudo apt-get update
+
+            sudo apt-get install -y \
+              git git-lfs curl python3 python-is-python3 \
+              ca-certificates rsync bc bison \
+              build-essential flex g++ gcc make \
+              libssl-dev zlib1g-dev \
+              libncurses-dev lib32z1-dev \
+              libxml2-utils xsltproc unzip zip \
+              lz4 lzop squashfs-tools \
+              fontconfig ccache
+
+      - run:
+          name: Check build environment
+          command: |
+            echo "=== CPU ==="
+            nproc
+
+            echo "=== RAM ==="
+            free -h
+
+            echo "=== DISK ==="
+            df -h /
 
       - run:
           name: Build OrangeFox recovery
@@ -113,6 +183,7 @@ jobs:
             export LC_ALL=C
 
             source build/envsetup.sh
+
             lunch twrp_flame-ap4a-eng
 
             mka recoveryimage -j4 \
@@ -121,8 +192,17 @@ jobs:
       - run:
           name: Verify recovery image
           command: |
-            test -f out/target/product/flame/recovery.img
-            ls -lh out/target/product/flame/recovery.img
+            cd ~/android
+
+            IMAGE="out/target/product/flame/recovery.img"
+
+            if [ ! -f "$IMAGE" ]; then
+              echo "ERROR: recovery.img was not generated"
+              exit 1
+            fi
+
+            echo "=== Recovery image generated ==="
+            ls -lh "$IMAGE"
 
       - store_artifacts:
           path: /home/circleci/android/out/target/product/flame/recovery.img
@@ -132,6 +212,10 @@ jobs:
           path: /home/circleci/orangefox-build.log
           destination: orangefox-build.log
 
+
+# ==========================================
+# WORKFLOW
+# ==========================================
 workflows:
   build:
     jobs:
