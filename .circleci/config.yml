@@ -10,7 +10,8 @@ jobs:
     working_directory: ~/android
 
     steps:
-      # 1. Install dependencies
+
+      # 1. Prepare build environment
       - run:
           name: Prepare build environment
           command: |
@@ -40,7 +41,7 @@ jobs:
 
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
-      # 2. Check machine
+      # 2. Check machine resources
       - run:
           name: Check build resources
           command: |
@@ -53,12 +54,14 @@ jobs:
             echo "===== DISK ====="
             df -h /
 
-      # 3. Sync OrangeFox
+      # 3. Sync OrangeFox 16.0
       - run:
           name: Sync OrangeFox 16.0
           no_output_timeout: 60m
           command: |
             source "$BASH_ENV"
+
+            export GIT_TERMINAL_PROMPT=0
 
             git clone \
               https://gitlab.com/OrangeFox/sync.git \
@@ -72,7 +75,7 @@ jobs:
               --branch 16.0 \
               --path ~/android
 
-      # 4. Configure Flame device tree
+      # 4. Configure Flame recovery device tree
       - run:
           name: Configure Flame
           no_output_timeout: 30m
@@ -86,9 +89,12 @@ jobs:
             printf '%s\n' \
               '<manifest>' \
               '    <remote name="flame" fetch="https://github.com/atlas4381" />' \
-              '    <project name="twrp_device_xiaomi_flame" path="device/xiaomi/flame" remote="flame" />' \
+              '    <project name="twrp_device_xiaomi_flame" path="device/xiaomi/flame" remote="flame" revision="main" />' \
               '</manifest>' \
               > .repo/local_manifests/flame.xml
+
+            echo "===== Flame manifest ====="
+            cat .repo/local_manifests/flame.xml
 
             echo "===== Sync Flame tree ====="
 
@@ -99,9 +105,11 @@ jobs:
               --no-clone-bundle \
               --no-tags
 
+            echo "===== Verify Flame tree ====="
+
             test -f device/xiaomi/flame/AndroidProducts.mk
 
-            echo "Flame device tree ready!"
+            ls -la device/xiaomi/flame
 
       # 5. Build OrangeFox
       - run:
@@ -123,18 +131,21 @@ jobs:
             mka recoveryimage -j4 \
               2>&1 | tee ~/orangefox-build.log
 
-      # 6. Verify image
+      # 6. Verify recovery image
       - run:
           name: Verify recovery image
           command: |
             IMAGE="out/target/product/flame/recovery.img"
 
-            test -f "$IMAGE"
+            if [ ! -f "$IMAGE" ]; then
+              echo "ERROR: recovery.img was not generated"
+              exit 1
+            fi
 
-            echo "===== OrangeFox Recovery ====="
+            echo "===== OrangeFox recovery generated ====="
             ls -lh "$IMAGE"
 
-      # 7. Upload final image
+      # 7. Upload artifacts
       - store_artifacts:
           path: /home/circleci/android/out/target/product/flame/recovery.img
           destination: OrangeFox-flame-recovery.img
