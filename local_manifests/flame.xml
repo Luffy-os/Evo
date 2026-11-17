@@ -1,7 +1,5 @@
 
-<?xml version="1.0" encoding="UTF-8"?>
 <manifest>
-    <!-- Redmi 14C 5G / Redmi 14R 5G - OrangeFox recovery -->
     <remote name="flame"
             fetch="https://github.com/atlas4381" />
 
