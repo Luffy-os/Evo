@@ -2,11 +2,7 @@
 version: 2.1
 
 jobs:
-
-  # ==========================================
-  # JOB 1: SYNC ORANGEFOX 16.0
-  # ==========================================
-  sync-orangefox:
+  build-orangefox:
     machine:
       image: ubuntu-2404:current
     resource_class: large
@@ -14,13 +10,22 @@ jobs:
     working_directory: ~/android
 
     steps:
+      # 1. Install dependencies
       - run:
-          name: Install Repo launcher
+          name: Prepare build environment
           command: |
             sudo apt-get update
-            sudo apt-get install -y git git-lfs curl python3 ca-certificates
 
-            # Configure Git identity BEFORE repo init
+            sudo apt-get install -y \
+              git git-lfs curl python3 python-is-python3 \
+              ca-certificates rsync bc bison \
+              build-essential flex g++ gcc make \
+              libssl-dev zlib1g-dev \
+              libncurses-dev lib32z1-dev \
+              libxml2-utils xsltproc unzip zip \
+              lz4 lzop squashfs-tools \
+              fontconfig ccache
+
             git config --global user.name "Luffy"
             git config --global user.email "builder@users.noreply.github.com"
             git config --global color.ui false
@@ -35,15 +40,25 @@ jobs:
 
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
+      # 2. Check machine
+      - run:
+          name: Check build resources
+          command: |
+            echo "===== CPU ====="
+            nproc
+
+            echo "===== RAM ====="
+            free -h
+
+            echo "===== DISK ====="
+            df -h /
+
+      # 3. Sync OrangeFox
       - run:
           name: Sync OrangeFox 16.0
           no_output_timeout: 60m
           command: |
             source "$BASH_ENV"
-
-            # Ensure Git identity is available
-            git config --global user.name "Luffy"
-            git config --global user.email "builder@users.noreply.github.com"
 
             git clone \
               https://gitlab.com/OrangeFox/sync.git \
@@ -57,58 +72,9 @@ jobs:
               --branch 16.0 \
               --path ~/android
 
+      # 4. Configure Flame device tree
       - run:
-          name: Verify OrangeFox source
-          command: |
-            cd ~/android
-
-            echo "=== Source directory ==="
-            ls -la
-
-            echo "=== Disk usage ==="
-            df -h /
-
-      - persist_to_workspace:
-          root: /home/circleci
-          paths:
-            - android
-
-
-  # ==========================================
-  # JOB 2: CONFIGURE FLAME DEVICE TREE
-  # ==========================================
-  configure-flame:
-    machine:
-      image: ubuntu-2404:current
-    resource_class: large
-
-    working_directory: ~/android
-
-    steps:
-      - attach_workspace:
-          at: /home/circleci
-
-      - run:
-          name: Install Repo launcher
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y git curl python3 ca-certificates
-
-            git config --global user.name "Luffy"
-            git config --global user.email "builder@users.noreply.github.com"
-
-            mkdir -p ~/bin
-
-            curl -fsSL \
-              https://storage.googleapis.com/git-repo-downloads/repo \
-              -o ~/bin/repo
-
-            chmod +x ~/bin/repo
-
-            echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
-
-      - run:
-          name: Configure Flame recovery tree
+          name: Configure Flame
           no_output_timeout: 30m
           command: |
             source "$BASH_ENV"
@@ -124,10 +90,7 @@ jobs:
               '</manifest>' \
               > .repo/local_manifests/flame.xml
 
-            echo "=== Flame manifest ==="
-            cat .repo/local_manifests/flame.xml
-
-            echo "=== Sync Flame device tree ==="
+            echo "===== Sync Flame tree ====="
 
             repo sync \
               -c \
@@ -136,59 +99,11 @@ jobs:
               --no-clone-bundle \
               --no-tags
 
-            echo "=== Verify device tree ==="
-
             test -f device/xiaomi/flame/AndroidProducts.mk
 
-            ls device/xiaomi/flame
+            echo "Flame device tree ready!"
 
-      - persist_to_workspace:
-          root: /home/circleci
-          paths:
-            - android
-
-
-  # ==========================================
-  # JOB 3: BUILD ORANGEFOX RECOVERY
-  # ==========================================
-  build-orangefox:
-    machine:
-      image: ubuntu-2404:current
-    resource_class: large
-
-    working_directory: ~/android
-
-    steps:
-      - attach_workspace:
-          at: /home/circleci
-
-      - run:
-          name: Install Android build dependencies
-          command: |
-            sudo apt-get update
-
-            sudo apt-get install -y \
-              git git-lfs curl python3 python-is-python3 \
-              ca-certificates rsync bc bison \
-              build-essential flex g++ gcc make \
-              libssl-dev zlib1g-dev \
-              libncurses-dev lib32z1-dev \
-              libxml2-utils xsltproc unzip zip \
-              lz4 lzop squashfs-tools \
-              fontconfig ccache
-
-      - run:
-          name: Check build environment
-          command: |
-            echo "=== CPU ==="
-            nproc
-
-            echo "=== RAM ==="
-            free -h
-
-            echo "=== DISK ==="
-            df -h /
-
+      # 5. Build OrangeFox
       - run:
           name: Build OrangeFox recovery
           no_output_timeout: 60m
@@ -208,21 +123,18 @@ jobs:
             mka recoveryimage -j4 \
               2>&1 | tee ~/orangefox-build.log
 
+      # 6. Verify image
       - run:
           name: Verify recovery image
           command: |
-            cd ~/android
-
             IMAGE="out/target/product/flame/recovery.img"
 
-            test -f "$IMAGE" || {
-              echo "ERROR: recovery.img not generated"
-              exit 1
-            }
+            test -f "$IMAGE"
 
-            echo "=== Recovery image ==="
+            echo "===== OrangeFox Recovery ====="
             ls -lh "$IMAGE"
 
+      # 7. Upload final image
       - store_artifacts:
           path: /home/circleci/android/out/target/product/flame/recovery.img
           destination: OrangeFox-flame-recovery.img
@@ -231,19 +143,7 @@ jobs:
           path: /home/circleci/orangefox-build.log
           destination: orangefox-build.log
 
-
-# ==========================================
-# WORKFLOW
-# ==========================================
 workflows:
   build:
     jobs:
-      - sync-orangefox
-
-      - configure-flame:
-          requires:
-            - sync-orangefox
-
-      - build-orangefox:
-          requires:
-            - configure-flame
+      - build-orangefox
