@@ -18,7 +18,12 @@ jobs:
           name: Install Repo launcher
           command: |
             sudo apt-get update
-            sudo apt-get install -y git curl python3 ca-certificates
+            sudo apt-get install -y git git-lfs curl python3 ca-certificates
+
+            # Configure Git identity BEFORE repo init
+            git config --global user.name "Luffy"
+            git config --global user.email "builder@users.noreply.github.com"
+            git config --global color.ui false
 
             mkdir -p ~/bin
 
@@ -34,6 +39,12 @@ jobs:
           name: Sync OrangeFox 16.0
           no_output_timeout: 60m
           command: |
+            source "$BASH_ENV"
+
+            # Ensure Git identity is available
+            git config --global user.name "Luffy"
+            git config --global user.email "builder@users.noreply.github.com"
+
             git clone \
               https://gitlab.com/OrangeFox/sync.git \
               ~/OrangeFox_sync
@@ -47,11 +58,11 @@ jobs:
               --path ~/android
 
       - run:
-          name: Check synced source
+          name: Verify OrangeFox source
           command: |
             cd ~/android
 
-            echo "=== OrangeFox source ==="
+            echo "=== Source directory ==="
             ls -la
 
             echo "=== Disk usage ==="
@@ -80,6 +91,12 @@ jobs:
       - run:
           name: Install Repo launcher
           command: |
+            sudo apt-get update
+            sudo apt-get install -y git curl python3 ca-certificates
+
+            git config --global user.name "Luffy"
+            git config --global user.email "builder@users.noreply.github.com"
+
             mkdir -p ~/bin
 
             curl -fsSL \
@@ -120,7 +137,9 @@ jobs:
               --no-tags
 
             echo "=== Verify device tree ==="
+
             test -f device/xiaomi/flame/AndroidProducts.mk
+
             ls device/xiaomi/flame
 
       - persist_to_workspace:
@@ -196,12 +215,12 @@ jobs:
 
             IMAGE="out/target/product/flame/recovery.img"
 
-            if [ ! -f "$IMAGE" ]; then
-              echo "ERROR: recovery.img was not generated"
+            test -f "$IMAGE" || {
+              echo "ERROR: recovery.img not generated"
               exit 1
-            fi
+            }
 
-            echo "=== Recovery image generated ==="
+            echo "=== Recovery image ==="
             ls -lh "$IMAGE"
 
       - store_artifacts:
