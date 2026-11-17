@@ -5,5 +5,6 @@
 
     <project name="twrp_device_xiaomi_flame"
              path="device/xiaomi/flame"
-             remote="flame" />
+             remote="flame"
+             revision="main" />
 </manifest>
