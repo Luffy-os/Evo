@@ -2,7 +2,7 @@
 version: 2.1
 
 jobs:
-  sync-evolution:
+  build-orangefox:
     machine:
       image: ubuntu-2404:current
     resource_class: large
@@ -12,33 +12,30 @@ jobs:
     steps:
       - checkout
 
-      # 1. Install dependencies and configure Git
+      # Install build dependencies
       - run:
           name: Install dependencies
           command: |
             sudo apt-get update
 
             sudo apt-get install -y \
-              git \
-              git-lfs \
-              curl \
-              python3 \
-              ca-certificates \
-              rsync \
-              bc \
-              bison \
-              build-essential \
-              flex \
-              libssl-dev \
-              zlib1g-dev
+              git git-lfs curl ca-certificates \
+              python3 python-is-python3 \
+              rsync bc bison build-essential flex \
+              g++ gcc make \
+              libssl-dev zlib1g-dev \
+              libncurses-dev lib32z1-dev \
+              libxml2-utils xsltproc \
+              unzip zip lz4 lzop \
+              squashfs-tools ccache
 
-            git config --global user.name "Luffy-os Builder"
+            git config --global user.name "Luffy"
             git config --global user.email "builder@users.noreply.github.com"
             git config --global color.ui false
 
             mkdir -p "$HOME/bin"
 
-            curl -L \
+            curl -fsSL \
               https://storage.googleapis.com/git-repo-downloads/repo \
               -o "$HOME/bin/repo"
 
@@ -46,9 +43,9 @@ jobs:
 
             echo 'export PATH=$HOME/bin:$PATH' >> "$BASH_ENV"
 
-      # 2. Inspect build machine
+      # Inspect build machine
       - run:
-          name: Verify build environment
+          name: Check build environment
           command: |
             echo "=== CPU ==="
             nproc
@@ -59,71 +56,37 @@ jobs:
             echo "=== DISK ==="
             df -h /
 
-            echo "=== ARCHITECTURE ==="
-            uname -m
-
-      # 3. Verify local manifest exists
+      # Sync OrangeFox 16.0
       - run:
-          name: Verify Flame manifest
-          command: |
-            echo "=== Repository directory ==="
-            pwd
-
-            echo "=== Local manifest directory ==="
-
-            ls -la "$PWD/local_manifests/" || {
-              echo "ERROR: local_manifests folder missing"
-              exit 1
-            }
-
-            echo "=== XML files ==="
-
-            find "$PWD/local_manifests" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.xml' \
-              -print
-
-            test -n "$(find "$PWD/local_manifests" \
-              -maxdepth 1 -type f -name '*.xml' -print -quit)" || {
-                echo "ERROR: No XML manifest found"
-                exit 1
-              }
-
-      # 4. Initialize Evolution X
-      - run:
-          name: Initialize Evolution X
-          no_output_timeout: 15m
+          name: Sync OrangeFox 16.0
+          no_output_timeout: 60m
           command: |
             source "$BASH_ENV"
 
-            repo init \
-              -u https://github.com/Evolution-X/manifest \
-              -b cnb \
-              --depth=1 \
-              --git-lfs
+            git clone \
+              https://gitlab.com/OrangeFox/sync.git \
+              "$HOME/OrangeFox_sync"
 
-      # 5. Copy local manifest
+            cd "$HOME/OrangeFox_sync"
+
+            chmod +x orangefox_sync.sh
+
+            ./orangefox_sync.sh \
+              --branch 16.0 \
+              --path "$HOME/android"
+
+      # Install Flame recovery device tree
       - run:
-          name: Configure Flame local manifest
+          name: Configure Flame device tree
           command: |
+            source "$BASH_ENV"
+
+            cd "$HOME/android"
+
             mkdir -p .repo/local_manifests
 
-            find "$PWD/local_manifests" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.xml' \
-              -exec cp -v {} .repo/local_manifests/ \;
-
-            echo "=== Installed manifests ==="
-            ls -la .repo/local_manifests/
-
-      # 6. Sync Android source
-      - run:
-          name: Sync Evolution X source
-          no_output_timeout: 30m
-          command: |
-            source "$BASH_ENV"
+            cp "$PWD/local_manifests/flame.xml" \
+              .repo/local_manifests/flame.xml
 
             repo sync \
               -c \
@@ -132,29 +95,58 @@ jobs:
               --no-clone-bundle \
               --no-tags
 
-      # 7. Verify source
-      - run:
-          name: Verify Flame source
-          command: |
-            echo "=== Device tree ==="
+            echo "=== Flame device tree ==="
             ls device/xiaomi/flame
 
-            echo "=== Vendor tree ==="
-            ls vendor/xiaomi/flame
+      # Build OrangeFox recovery
+      - run:
+          name: Build OrangeFox recovery
+          no_output_timeout: 60m
+          command: |
+            source "$BASH_ENV"
 
-            echo "=== Kernel tree ==="
-            ls device/xiaomi/flame-kernel
+            cd "$HOME/android"
 
-            echo "=== Repo size ==="
-            du -sh .repo
+            export OF_MAINTAINER="Luffy"
+            export FOX_BUILD_DEVICE=flame
+            export FOX_AB_DEVICE=1
+            export ALLOW_MISSING_DEPENDENCIES=true
+            export LC_ALL=C
 
-            echo "=== Source size ==="
-            du -sh --exclude=.repo .
+            source build/envsetup.sh
 
-            echo "=== Remaining disk ==="
-            df -h /
+            lunch twrp_flame-ap4a-eng
+
+            mka recoveryimage -j4 \
+              2>&1 | tee "$HOME/orangefox-build.log"
+
+      # Verify recovery image
+      - run:
+          name: Verify recovery image
+          command: |
+            cd "$HOME/android"
+
+            echo "=== Recovery image ==="
+
+            find out/target/product/flame \
+              -maxdepth 1 \
+              -name 'recovery.img' \
+              -type f
+
+            test -f out/target/product/flame/recovery.img
+
+            ls -lh out/target/product/flame/recovery.img
+
+      # Upload build output
+      - store_artifacts:
+          path: ~/android/out/target/product/flame/recovery.img
+          destination: OrangeFox-flame-recovery.img
+
+      - store_artifacts:
+          path: ~/orangefox-build.log
+          destination: orangefox-build.log
 
 workflows:
   build:
     jobs:
-      - sync-evolution
+      - build-orangefox
